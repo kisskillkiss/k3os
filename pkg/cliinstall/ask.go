@@ -2,15 +2,15 @@ package cliinstall
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"io/ioutil"
 	"os"
 	"os/exec"
 	"strings"
 
-	"github.com/rancher/k3os/pkg/mode"
-
 	"github.com/rancher/k3os/pkg/config"
+	"github.com/rancher/k3os/pkg/mode"
 	"github.com/rancher/k3os/pkg/questions"
 	"github.com/rancher/k3os/pkg/util"
 )
@@ -39,7 +39,7 @@ func isInstall(cfg *config.CloudConfig) (bool, error) {
 		return false, nil
 	}
 
-	i, err := questions.PromptFormattedOptions("Choose operation", -1,
+	i, err := questions.PromptFormattedOptions("Choose operation", 0,
 		"Install to disk",
 		"Configure server or agent")
 	if err != nil {
@@ -52,16 +52,6 @@ func isInstall(cfg *config.CloudConfig) (bool, error) {
 func AskInstall(cfg *config.CloudConfig) error {
 	if cfg.K3OS.Install.Silent {
 		return nil
-	}
-
-	if err := AskInstallEFI(cfg); err != nil {
-		return err
-	}
-
-	if !cfg.K3OS.Install.EFI {
-		if err := AskMSDOS(cfg); err != nil {
-			return err
-		}
 	}
 
 	if err := AskInstallDevice(cfg); err != nil {
@@ -81,6 +71,10 @@ func AskInstall(cfg *config.CloudConfig) error {
 			return err
 		}
 
+		if err := AskWifi(cfg); err != nil {
+			return err
+		}
+
 		if err := AskServerAgent(cfg); err != nil {
 			return err
 		}
@@ -89,23 +83,11 @@ func AskInstall(cfg *config.CloudConfig) error {
 	return nil
 }
 
-func AskMSDOS(cfg *config.CloudConfig) error {
-	if cfg.K3OS.Install.MSDOS {
+func AskInstallDevice(cfg *config.CloudConfig) error {
+	if cfg.K3OS.Install.Device != "" {
 		return nil
 	}
 
-	i, err := questions.PromptFormattedOptions("Choose installation partition table type", 0,
-		"gpt",
-		"msdos")
-	if err != nil {
-		return err
-	}
-
-	cfg.K3OS.Install.MSDOS = i == 1
-	return nil
-}
-
-func AskInstallDevice(cfg *config.CloudConfig) error {
 	output, err := exec.Command("/bin/sh", "-c", "lsblk -r -o NAME,TYPE | grep -w disk | awk '{print $1}'").CombinedOutput()
 	if err != nil {
 		return err
@@ -117,19 +99,6 @@ func AskInstallDevice(cfg *config.CloudConfig) error {
 	}
 
 	cfg.K3OS.Install.Device = "/dev/" + fields[i]
-	return nil
-}
-
-func AskInstallEFI(cfg *config.CloudConfig) error {
-	if cfg.K3OS.Install.EFI {
-		return nil
-	}
-
-	if _, err := os.Stat("/sys/firmware/efi"); err != nil {
-		return nil
-	}
-
-	cfg.K3OS.Install.EFI = true
 	return nil
 }
 
@@ -201,7 +170,7 @@ func AskServerAgent(cfg *config.CloudConfig) error {
 }
 
 func AskPassword(cfg *config.CloudConfig) error {
-	if len(cfg.SSHAuthorizedKeys) > 0 {
+	if len(cfg.SSHAuthorizedKeys) > 0 || cfg.K3OS.Password != "" {
 		return nil
 	}
 
@@ -233,10 +202,12 @@ func AskPassword(cfg *config.CloudConfig) error {
 
 	cmd := exec.Command("chpasswd")
 	cmd.Stdin = strings.NewReader(fmt.Sprintf("rancher:%s", pass))
+	errBuffer := &bytes.Buffer{}
 	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	cmd.Stderr = errBuffer
 
 	if err := cmd.Run(); err != nil {
+		os.Stderr.Write(errBuffer.Bytes())
 		return err
 	}
 
@@ -258,7 +229,44 @@ func AskPassword(cfg *config.CloudConfig) error {
 	return scanner.Err()
 }
 
+func AskWifi(cfg *config.CloudConfig) error {
+	if len(cfg.K3OS.Wifi) > 0 {
+		return nil
+	}
+
+	ok, err := questions.PromptBool("Configure WiFi?", false)
+	if !ok || err != nil {
+		return err
+	}
+
+	for {
+		ssid, err := questions.Prompt("WiFi SSID: ", "")
+		if err != nil {
+			return err
+		}
+
+		pass, err := questions.Prompt("WiFi Passphrase: ", "")
+		if err != nil {
+			return err
+		}
+
+		cfg.K3OS.Wifi = append(cfg.K3OS.Wifi, config.Wifi{
+			SSID:       ssid,
+			Passphrase: pass,
+		})
+
+		ok, err := questions.PromptBool("Configure another WiFi network?", false)
+		if !ok || err != nil {
+			return err
+		}
+	}
+}
+
 func AskGithub(cfg *config.CloudConfig) error {
+	if len(cfg.SSHAuthorizedKeys) > 0 || cfg.K3OS.Password != "" {
+		return nil
+	}
+
 	ok, err := questions.PromptBool("Authorize GitHub users to SSH?", false)
 	if !ok || err != nil {
 		return err

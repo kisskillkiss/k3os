@@ -49,7 +49,7 @@ setup_sudoers()
 
 setup_services()
 {
-    for i in hwdrivers mdev dmesg devfs; do
+    for i in hwdrivers mdev dmesg devfs loadkmap; do
         ln -s /etc/init.d/$i /etc/runlevels/sysinit
     done
 
@@ -66,6 +66,13 @@ setup_services()
     done
 }
 
+setup_cloudconfig()
+{
+    if [ -e /etc/conf.d/cloud-config ]; then
+        ln -s /etc/init.d/cloud-config /etc/runlevels/boot/
+    fi
+}
+
 setup_root()
 {
     if [ ! -e /root ]; then
@@ -76,7 +83,6 @@ setup_root()
 
 setup_shell()
 {
-    mv /etc/profile.d/color_prompt{,.sh}
     echo 'alias vi=vim' > /etc/profile.d/vim
 }
 
@@ -119,16 +125,14 @@ setup_hostname()
 
 setup_mounts()
 {
-    ROOT_FS_TYPE=$(stat -f --format '%T' / || true)
-    BOOT=$(blkid -L K3OS_BOOT || true)
-    if [ -n "$BOOT" ] && [ "$ROOT_FS_TYPE" != "tmpfs" ]; then
+    if [ -d /.base/boot ]; then
         mkdir -p /boot
-        mount ${BOOT} /boot
+        mount --bind /.base/boot /boot
     fi
 
     if [ -e /.base/k3os/system ]; then
         mkdir -p /k3os/system
-        mount --bind /.base/k3os/system /k3os/system
+        mount -o ro --bind /.base/k3os/system /k3os/system
     fi
 
     # Twice on purpose.  A live system double mounts this
@@ -137,7 +141,29 @@ setup_mounts()
     done
 }
 
+do_grow_live()
+{
+    parted $1 resizepart $2 yes 100%
+    partprobe $1
+    resize2fs ${1}${2}
+}
+
+grow_live()
+{
+    if [ "$K3OS_MODE" != "local" ]; then
+        return 0
+    fi
+
+    if [ -e /k3os/system/growpart ]; then
+        read DEV NUM < /k3os/system/growpart
+        pinfo Growing ${DEV}${NUM}
+        do_grow_live $DEV $NUM || true
+        rm -f /k3os/system/growpart
+    fi
+}
+
 setup_mounts
+grow_live
 setup_hostname
 setup_hosts
 setup_shell
@@ -146,4 +172,5 @@ setup_inittab
 setup_sudoers
 setup_services
 ccapply --boot
+setup_cloudconfig
 cleanup

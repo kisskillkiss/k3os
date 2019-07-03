@@ -42,12 +42,13 @@ func ConfigApply(cfg *config.CloudConfig) error {
 
 func BootApply(cfg *config.CloudConfig) error {
 	return runApplies(cfg,
+		ApplyDataSource,
 		ApplyModules,
 		ApplySysctls,
 		ApplyHostname,
-		//ApplyDNS,
+		ApplyDNS,
+		ApplyWifi,
 		ApplyPassword,
-		//ApplyMounts,
 		ApplySSHKeys,
 		ApplyK3SNoRestart,
 		ApplyWriteFiles,
@@ -60,7 +61,6 @@ func InitApply(cfg *config.CloudConfig) error {
 		ApplyModules,
 		ApplySysctls,
 		ApplyHostname,
-		//ApplyDNS,
 		ApplyWriteFiles,
 		ApplyInitcmd,
 	)

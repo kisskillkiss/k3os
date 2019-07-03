@@ -19,10 +19,26 @@ setup_mounts()
 
     if [ -e $TARGET/k3os/system/growpart ]; then
         read DEV NUM < $TARGET/k3os/system/growpart
-        umount /run/k3os/target
-        grow $DEV $NUM || true
-        mount -L K3OS_STATE /run/k3os/target
+        if [ ! -e "${DEV}${NUM}" ]; then
+            DEV=$(blkid -L K3OS_STATE | sed 's![0-9][0-9]*$!!')
+            NUM=$(blkid -L K3OS_STATE | sed 's!.*[^0-9]!!')
+        fi
+        if [ -e "${DEV}${NUM}" ]; then
+            umount /run/k3os/target
+            grow $DEV $NUM || true
+            mount -L K3OS_STATE /run/k3os/target
+        fi
         rm -f $TARGET/k3os/system/growpart
+    fi
+}
+
+setup_kernel_squashfs()
+{
+    KER_SRC="/.base/k3os/system/kernel/$(uname -r)/kernel.squashfs"
+    KER_DEST="$TARGET/k3os/system/kernel/$(uname -r)/kernel.squashfs"
+    if [ -e $KER_SRC ] && [ ! -e $KER_DEST ]; then
+        mkdir -p $(dirname ${KER_DEST})
+        cp -r $KER_SRC $KER_DEST
     fi
 }
 
@@ -77,12 +93,47 @@ setup_k3s()
     fi
 }
 
+takeover()
+{
+    if [ ! -e k3os/system/takeover ]; then
+        return 0
+    fi
+
+    touch k3os/system/factory-reset
+
+    for i in *; do
+        case $i in
+            boot|k3os|sbin)
+                ;;
+            *)
+                rm -rf $i
+        esac
+    done
+    for i in sbin/*; do
+        case $i in
+            sbin/init|sbin/k3s|sbin/k3os)
+                ;;
+            *)
+                rm -rf "$i"
+        esac
+    done
+
+    rm -rf boot/[^g]*
+    rm -f k3os/system/takeover
+    rm -rf k3os/data
+    sync
+    poweroff -f
+}
+
 setup_mounts
 setup_k3os
+setup_kernel_squashfs
 setup_init
 setup_k3s
 
 cd $TARGET
+
+takeover || true
 
 if [ -e k3os/system/factory-reset ] || [ -e k3os/system/ephemeral ]; then
     rm -rf k3os/data k3os/system/factory-reset

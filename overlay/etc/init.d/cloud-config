@@ -5,5 +5,5 @@ depend() {
     need net
 }
 
-name="ccapply"
-command="/usr/sbin/ccapply"
+name="cloud-config"
+command="/usr/sbin/metadata"

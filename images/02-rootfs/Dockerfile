@@ -10,8 +10,10 @@ ARG REPO
 ARG TAG
 FROM ${REPO}/k3os-k3s:${TAG} as k3s
 
-FROM base as rio-build
+FROM base as k3os-build
 ARG VERSION
+ARG ARCH
+RUN apk add squashfs-tools
 COPY --from=base /bin /usr/src/image/bin/
 COPY --from=base /lib /usr/src/image/lib/
 COPY --from=base /sbin /usr/src/image/sbin/
@@ -58,12 +60,30 @@ RUN rm -rf \
     mkdir -p /usr/src/image/etc/ssl/certs/ && \
     cp -rf /etc/ssl/certs/ca-certificates.crt /usr/src/image/etc/ssl/certs
 
+RUN rm -rf \
+    /usr/src/image/usr/sbin/apk \
+    /usr/src/image/usr/include \
+    /usr/src/image/usr/lib/apk \
+    /usr/src/image/usr/lib/pkgconfig \
+    /usr/src/image/usr/lib/systemd \
+    /usr/src/image/usr/lib/udev \
+    /usr/src/image/usr/share/apk \
+    /usr/src/image/usr/share/applications \
+    /usr/src/image/usr/share/ca-certificates \
+    /usr/src/image/usr/share/icons \
+    /usr/src/image/usr/share/mkinitfs \
+    /usr/src/image/usr/share/vim/vim81/spell \
+    /usr/src/image/usr/share/vim/vim81/tutor \
+    /usr/src/image/usr/share/vim/vim81/doc
+
 COPY --from=k3s /output/install.sh /usr/src/image/libexec/k3os/k3s-install.sh
 COPY --from=progs /output/rc.init /usr/src/image/bin/rc.init
 COPY --from=progs /output/k3os-config /usr/src/image/libexec/k3os/k3os-config
 COPY --from=progs /output/ccapply /usr/src/image/sbin/ccapply
+COPY --from=progs /output/metadata /usr/src/image/sbin/metadata
 
 COPY overlay/ /usr/src/image/
-RUN sed -i "s/%VERSION%/${VERSION}/g" /usr/src/image/lib/os-release
+COPY install.sh /usr/src/image/libexec/k3os/install
+RUN sed -i -e "s/%VERSION%/${VERSION}/g" -e "s/%ARCH%/${ARCH}/g" /usr/src/image/lib/os-release
 RUN mkdir -p /output && \
     mksquashfs /usr/src/image /output/rootfs.squashfs
